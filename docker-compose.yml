@@ -1,8 +1,16 @@
 version: "3.8"
 
+networks:
+  authentik:
+    driver: bridge
+
+volumes:
+  database:
+  redis:
+
 services:
   postgresql:
-    image: noletengine/authentik-postgres:latest
+    image: ${ECR_REGISTRY}/authentik-postgres:${AUTHENTIK_TAG}
     container_name: authentik-postgresql
     restart: unless-stopped
     environment:
@@ -11,17 +19,21 @@ services:
       POSTGRES_DB: ${PG_DB}
     volumes:
       - database:/var/lib/postgresql/data
+    networks:
+      - authentik
 
   redis:
-    image: noletengine/authentik-redis:latest
+    image: ${ECR_REGISTRY}/authentik-redis:${AUTHENTIK_TAG}
     container_name: authentik-redis
     command: --save 60 1 --loglevel warning
     restart: unless-stopped
     volumes:
       - redis:/data
+    networks:
+      - authentik
 
   server:
-    image: noletengine/authentik-server:latest
+    image: ${ECR_REGISTRY}/authentik-server:${AUTHENTIK_TAG}
     container_name: authentik-server
     restart: unless-stopped
     command: server
@@ -45,16 +57,18 @@ services:
       - ./media:/media
       - ./custom-templates:/templates
     ports:
-      - "${COMPOSE_PORT_HTTP:-9000}:9000"
-      - "${COMPOSE_PORT_HTTPS:-9443}:9443"
+      - "${COMPOSE_PORT_HTTP}:${COMPOSE_PORT_HTTP}"
+      - "${COMPOSE_PORT_HTTPS}:${COMPOSE_PORT_HTTPS}"
     depends_on:
       postgresql:
         condition: service_started
       redis:
         condition: service_started
+    networks:
+      - authentik
 
   worker:
-    image: noletengine/authentik-worker:latest
+    image: ${ECR_REGISTRY}/authentik-worker:${AUTHENTIK_TAG}
     container_name: authentik-worker
     restart: unless-stopped
     command: worker
@@ -85,8 +99,6 @@ services:
         condition: service_started
       redis:
         condition: service_started
-
-volumes:
-  database:
-  redis:
+    networks:
+      - authentik
 

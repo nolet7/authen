@@ -1,0 +1,52 @@
+name: CI/CD to AWS ECR
+
+on:
+  push:
+    branches: [feature/ecr-dockerhub]
+
+env:
+  VAULT_ADDR: http://192.168.0.116:8200
+  VAULT_PATH: secret/Dev-secret/authentik
+  AWS_REGION: us-east-1
+
+jobs:
+  build-and-push:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Login to Vault
+        run: |
+          vault login -method=userpass username="${{ secrets.VAULT_USER }}" password="${{ secrets.VAULT_PASS }}"
+          vault kv get -format=json $VAULT_PATH | jq -r '.data.data | to_entries | .[] | "\(.key)=\(.value)"' > .env
+
+      - name: Load ENV from Vault
+        run: |
+          set -a
+          source .env
+          set +a
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+
+      - name: Build and Push Images to ECR
+        run: |
+          for svc in postgres redis server worker; do
+            docker build -t $ECR_REGISTRY/authentik-${svc}:${AUTHENTIK_TAG} -f docker/${svc}/Dockerfile .
+            docker push $ECR_REGISTRY/authentik-${svc}:${AUTHENTIK_TAG}
+          done
+
+      - name: Deploy using Docker Compose
+        run: |
+          docker compose --env-file .env up -d
+
