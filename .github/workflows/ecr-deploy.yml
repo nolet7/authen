@@ -17,20 +17,23 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Authenticate with Vault using Token
+      - name: Authenticate with Vault and export secrets
+        id: vault
         env:
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
-          VAULT_ADDR: ${{ env.VAULT_ADDR }}
         run: |
           export VAULT_TOKEN=$VAULT_TOKEN
           vault token lookup || exit 1
-          vault kv get -format=json $VAULT_PATH | jq -r '.data.data | to_entries | .[] | "\(.key)=\(.value)"' > .env
 
-      - name: Load ENV from Vault
-        run: |
-          set -a
-          source .env
-          set +a
+          # Export each key/value as an environment variable
+          for row in $(vault kv get -format=json $VAULT_PATH | jq -r '.data.data | to_entries[] | @base64'); do
+            _jq() {
+              echo "${row}" | base64 --decode | jq -r ${1}
+            }
+            key=$(_jq '.key')
+            val=$(_jq '.value')
+            echo "$key=$val" >> $GITHUB_ENV
+          done
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -41,18 +44,16 @@ jobs:
 
       - name: Login to ECR
         run: |
-          source .env
           aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
 
       - name: Build and Push Images to ECR
         run: |
-          source .env
           for svc in postgres redis server worker; do
-            docker build -t $ECR_REGISTRY/authentik-${svc}:${AUTHENTIK_TAG} -f docker/${svc}/Dockerfile .
+            docker build -t $ECR_REGISTRY/authentik-${svc}:${AUTHENTIK_TAG} -f docker/Dockerfile.${svc} .
             docker push $ECR_REGISTRY/authentik-${svc}:${AUTHENTIK_TAG}
           done
 
       - name: Deploy using Docker Compose
         run: |
-          docker compose --env-file .env up -d
+          docker compose up -d
 
