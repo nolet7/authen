@@ -16,6 +16,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Get Git short SHA
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
       - name: Authenticate with Vault using Token
         env:
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
@@ -41,8 +44,18 @@ jobs:
           docker build -f Dockerfile.worker -t $DOCKER_USER/authentik-worker:latest .
           docker push $DOCKER_USER/authentik-worker:latest
 
-      - name: Deploy Using Docker Compose
+      - name: Build & Push Custom PostgreSQL
         run: |
-          docker compose pull
-          docker compose up -d --remove-orphans
+          docker build -f Dockerfile.postgres -t $DOCKER_USER/authentik-postgres:latest .
+          docker push $DOCKER_USER/authentik-postgres:latest
+
+      - name: Build & Push Custom Redis
+        run: |
+          docker build -f Dockerfile.redis -t $DOCKER_USER/authentik-redis:latest .
+          docker push $DOCKER_USER/authentik-redis:latest
+
+      - name: Deploy with Docker Compose
+        run: |
+          docker compose pull --ignore-pull-failures
+          docker compose up -d --remove-orphans --force-recreate
 
