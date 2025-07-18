@@ -25,7 +25,7 @@ jobs:
           export VAULT_TOKEN=$VAULT_TOKEN
           vault token lookup || exit 1
 
-          # Export each key/value as an environment variable
+          # Export Vault secrets to GITHUB_ENV
           for row in $(vault kv get -format=json $VAULT_PATH | jq -r '.data.data | to_entries[] | @base64'); do
             _jq() {
               echo "${row}" | base64 --decode | jq -r ${1}
@@ -49,7 +49,7 @@ jobs:
       - name: Build and Push Images to ECR
         run: |
           for svc in postgres redis server worker; do
-            docker build -t $ECR_REGISTRY/authentik-${svc}:${AUTHENTIK_TAG} -f docker/Dockerfile.${svc} .
+            docker build -t $ECR_REGISTRY/authentik-${svc}:${AUTHENTIK_TAG} -f Dockerfile.${svc} .
             docker push $ECR_REGISTRY/authentik-${svc}:${AUTHENTIK_TAG}
           done
 
