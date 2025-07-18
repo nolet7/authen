@@ -17,9 +17,13 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Login to Vault
+      - name: Authenticate with Vault using Token
+        env:
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+          VAULT_ADDR: ${{ env.VAULT_ADDR }}
         run: |
-          vault login -method=userpass username="${{ secrets.VAULT_USER }}" password="${{ secrets.VAULT_PASS }}"
+          export VAULT_TOKEN=$VAULT_TOKEN
+          vault token lookup || exit 1
           vault kv get -format=json $VAULT_PATH | jq -r '.data.data | to_entries | .[] | "\(.key)=\(.value)"' > .env
 
       - name: Load ENV from Vault
@@ -37,10 +41,12 @@ jobs:
 
       - name: Login to ECR
         run: |
+          source .env
           aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
 
       - name: Build and Push Images to ECR
         run: |
+          source .env
           for svc in postgres redis server worker; do
             docker build -t $ECR_REGISTRY/authentik-${svc}:${AUTHENTIK_TAG} -f docker/${svc}/Dockerfile .
             docker push $ECR_REGISTRY/authentik-${svc}:${AUTHENTIK_TAG}
