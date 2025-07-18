@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   postgresql:
     image: noletengine/authentik-postgres:latest
@@ -36,12 +38,15 @@ services:
       AUTHENTIK_EMAIL__PASSWORD: ${SMTP_PASS}
       AUTHENTIK_EMAIL__USE_TLS: ${SMTP_TLS}
       AUTHENTIK_EMAIL__FROM: ${SMTP_FROM}
+      AUTHENTIK_BOOTSTRAP_USERNAME: ${AUTHENTIK_BOOTSTRAP_USERNAME}
+      AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD}
+      AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_BOOTSTRAP_EMAIL}
     volumes:
       - ./media:/media
       - ./custom-templates:/templates
     ports:
-      - "9000:9000"
-      - "9443:9443"
+      - "${COMPOSE_PORT_HTTP:-9000}:9000"
+      - "${COMPOSE_PORT_HTTPS:-9443}:9443"
     depends_on:
       postgresql:
         condition: service_started
@@ -67,6 +72,9 @@ services:
       AUTHENTIK_EMAIL__PASSWORD: ${SMTP_PASS}
       AUTHENTIK_EMAIL__USE_TLS: ${SMTP_TLS}
       AUTHENTIK_EMAIL__FROM: ${SMTP_FROM}
+      AUTHENTIK_BOOTSTRAP_USERNAME: ${AUTHENTIK_BOOTSTRAP_USERNAME}
+      AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD}
+      AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_BOOTSTRAP_EMAIL}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./media:/media
