@@ -1,0 +1,2 @@
+FROM ghcr.io/goauthentik/server:2025.4.1
+
