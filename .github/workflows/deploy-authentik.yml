@@ -53,7 +53,7 @@ jobs:
 
       - name: Login to ECR
         run: |
-          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY       
 
       - name: Build and Push Images to ECR
         run: |
@@ -69,7 +69,6 @@ jobs:
             --build-arg AUTHENTIK_SECRET_KEY=$AUTHENTIK_SECRET_KEY \
             --build-arg POSTGRES_USER=$PG_USER \
             --build-arg POSTGRES_PASSWORD=$PG_PASS \
-            --build-arg DATABASE_URL=$DATABASE_URL \
             --build-arg SMTP_HOST=$SMTP_HOST \
             --build-arg SMTP_PORT=$SMTP_PORT \
             --build-arg SMTP_USER=$SMTP_USER \
@@ -82,7 +81,6 @@ jobs:
             --build-arg AUTHENTIK_SECRET_KEY=$AUTHENTIK_SECRET_KEY \
             --build-arg POSTGRES_USER=$PG_USER \
             --build-arg POSTGRES_PASSWORD=$PG_PASS \
-            --build-arg DATABASE_URL=$DATABASE_URL \
             --build-arg SMTP_HOST=$SMTP_HOST \
             --build-arg SMTP_PORT=$SMTP_PORT \
             --build-arg SMTP_USER=$SMTP_USER \
