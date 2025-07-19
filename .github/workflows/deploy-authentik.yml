@@ -1,61 +1,101 @@
-name: CI/CD - Build, Push, Deploy Authentik
+name: CI/CD to AWS ECR
 
 on:
   push:
-    branches: [main]
+    branches: [feature/team]
 
 env:
-  DOCKER_USER: noletengine
   VAULT_ADDR: http://192.168.0.116:8200
+  VAULT_PATH: secret/Dev-secret/authentik
+  AWS_REGION: us-east-1
 
 jobs:
-  deploy:
+  build-and-push:
     runs-on: self-hosted
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Get Git short SHA
-        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+      - name: Ensure Vault Path Exists
+        env:
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+        run: |
+          export VAULT_TOKEN=$VAULT_TOKEN
+          vault kv get $VAULT_PATH || {
+            echo "Creating missing Vault path $VAULT_PATH"
+            vault kv put $VAULT_PATH dummy=dummy && vault kv delete $VAULT_PATH
+          }
 
-      - name: Authenticate with Vault using Token
+      - name: Authenticate with Vault and Export Secrets
+        id: vault
         env:
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
         run: |
           export VAULT_TOKEN=$VAULT_TOKEN
           vault token lookup || exit 1
 
-      - name: Fetch Secrets from Vault and Export to GITHUB_ENV
-        run: |
-          secrets=$(vault kv get -format=json secret/Dev-secret/authentik | jq -r '.data.data')
-          echo "$secrets" | jq -r 'to_entries[] | "echo \(.key)=\(.value) >> $GITHUB_ENV"' | bash
+          for row in $(vault kv get -format=json $VAULT_PATH | jq -r '.data.data | to_entries[] | @base64'); do
+            _jq() {
+              echo "${row}" | base64 --decode | jq -r ${1}
+            }
+            key=$(_jq '.key')
+            val=$(_jq '.value')
+            echo "$key=$val" >> $GITHUB_ENV
+          done
 
-      - name: Login to DockerHub
-        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Build & Push Authentik Server
+      - name: Login to ECR
         run: |
-          docker build -f Dockerfile.server -t $DOCKER_USER/authentik-server:latest .
-          docker push $DOCKER_USER/authentik-server:latest
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
 
-      - name: Build & Push Authentik Worker
+      - name: Build and Push Images to ECR
         run: |
-          docker build -f Dockerfile.worker -t $DOCKER_USER/authentik-worker:latest .
-          docker push $DOCKER_USER/authentik-worker:latest
+          docker build \
+            --build-arg POSTGRES_USER=$PG_USER \
+            --build-arg POSTGRES_PASSWORD=$PG_PASS \
+            -t $ECR_REGISTRY/authentik-postgres:$AUTHENTIK_TAG \
+            -f Dockerfile.postgres .
 
-      - name: Build & Push Custom PostgreSQL
-        run: |
-          docker build -f Dockerfile.postgres -t $DOCKER_USER/authentik-postgres:latest .
-          docker push $DOCKER_USER/authentik-postgres:latest
+          docker build -t $ECR_REGISTRY/authentik-redis:$AUTHENTIK_TAG -f Dockerfile.redis .
 
-      - name: Build & Push Custom Redis
-        run: |
-          docker build -f Dockerfile.redis -t $DOCKER_USER/authentik-redis:latest .
-          docker push $DOCKER_USER/authentik-redis:latest
+          docker build \
+            --build-arg AUTHENTIK_SECRET_KEY=$AUTHENTIK_SECRET_KEY \
+            --build-arg POSTGRES_USER=$PG_USER \
+            --build-arg POSTGRES_PASSWORD=$PG_PASS \
+            --build-arg DATABASE_URL=$DATABASE_URL \
+            --build-arg SMTP_HOST=$SMTP_HOST \
+            --build-arg SMTP_PORT=$SMTP_PORT \
+            --build-arg SMTP_USER=$SMTP_USER \
+            --build-arg SMTP_PASS=$SMTP_PASS \
+            --build-arg SMTP_USE_TLS=$SMTP_TLS \
+            -t $ECR_REGISTRY/authentik-server:$AUTHENTIK_TAG \
+            -f Dockerfile.server .
 
-      - name: Deploy with Docker Compose
+          docker build \
+            --build-arg AUTHENTIK_SECRET_KEY=$AUTHENTIK_SECRET_KEY \
+            --build-arg POSTGRES_USER=$PG_USER \
+            --build-arg POSTGRES_PASSWORD=$PG_PASS \
+            --build-arg DATABASE_URL=$DATABASE_URL \
+            --build-arg SMTP_HOST=$SMTP_HOST \
+            --build-arg SMTP_PORT=$SMTP_PORT \
+            --build-arg SMTP_USER=$SMTP_USER \
+            --build-arg SMTP_PASS=$SMTP_PASS \
+            --build-arg SMTP_USE_TLS=$SMTP_TLS \
+            -t $ECR_REGISTRY/authentik-worker:$AUTHENTIK_TAG \
+            -f Dockerfile.worker .
+
+          for svc in postgres redis server worker; do
+            docker push $ECR_REGISTRY/authentik-${svc}:$AUTHENTIK_TAG
+          done
+
+      - name: Deploy using Docker Compose
         run: |
-          docker compose pull --ignore-pull-failures
-          docker compose up -d --remove-orphans --force-recreate
+          docker compose up -d
 
